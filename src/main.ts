@@ -1,148 +1,123 @@
 import './style.css'
 import './scss/main.scss'
-import type { AemetResponse } from './types/aemet';
+import type { AemetResponse } from './types/aemet'
 
-// --- CONFIGURACIÓN ---
-const API_KEY = import.meta.env.VITE_AEMET_API_KEY; 
-let municipiosLocal: { nombre: string, id: string }[] = [];
+// --- ESTADO ---
+let municipiosLocal: { nombre: string; id: string }[] = []
 
-// Detectamos si estamos en local (localhost) o en producción (Vercel)
-const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
-// --- 1. REGISTRO LOCAL DE MUNICIPIOS (AEMET) ---
-async function registrarMunicipiosLocalmente() {
-  // En local va directo a AEMET usando VITE_API_KEY. En Vercel usa el Proxy seguro.
-  const urlMaestro = isLocal 
-    ? `https://opendata.aemet.es/opendata/api/maestro/municipios?api_key=${API_KEY}`
-    : `/api/clima?type=maestro`;
-
+// --- 1. CARGA DE MUNICIPIOS (A TRAVÉS DEL PROXY) ---
+async function registrarMunicipios() {
   try {
-    const response = await fetch(urlMaestro);
-    const metaData = await response.json();
-    
-    // AEMET nos da una URL secundaria en 'datos' para descargar el JSON real
-    const finalRes = await fetch(metaData.datos);
-    const buffer = await finalRes.arrayBuffer();
-    const decoder = new TextDecoder('iso-8859-15');
-    const decodedText = decoder.decode(buffer);
-    
-    const data = JSON.parse(decodedText);
+    const response = await fetch('/api/clima?type=maestro')
+    const metaData = await response.json()
 
-    // Guardamos en memoria para que el buscador sea instantáneo
+    const finalRes = await fetch(metaData.datos)
+    const buffer = await finalRes.arrayBuffer()
+    const decodedText = new TextDecoder('iso-8859-15').decode(buffer)
+    const data = JSON.parse(decodedText)
+
     municipiosLocal = data.map((m: any) => ({
       nombre: m.nombre,
-      id: m.id.replace('id', '') 
-    }));
+      id: m.id.replace('id', '')
+    }))
 
-    console.log(`✅ Registro completado: ${municipiosLocal.length} municipios listos.`);
-    setupBuscador();
+    setupBuscador()
   } catch (error) {
-    console.error("❌ Error al registrar municipios:", error);
+    console.error('❌ Error cargando municipios:', error)
   }
 }
 
-// --- 2. LÓGICA DEL BUSCADOR ---
+// --- 2. BUSCADOR ---
 function setupBuscador() {
-  const inputSearch = document.querySelector<HTMLInputElement>('#city-search')!;
-  const suggestionsUl = document.querySelector<HTMLUListElement>('#suggestions')!;
+  const input = document.querySelector<HTMLInputElement>('#city-search')!
+  const list = document.querySelector<HTMLUListElement>('#suggestions')!
 
-  inputSearch.addEventListener('input', () => {
-    const query = inputSearch.value.toLowerCase().trim();
-    suggestionsUl.innerHTML = '';
+  input.addEventListener('input', () => {
+    const query = input.value.toLowerCase().trim()
+    list.innerHTML = ''
 
-    if (query.length < 3) return;
+    if (query.length < 3) return
 
-    const coincidencias = municipiosLocal
+    municipiosLocal
       .filter(m => m.nombre.toLowerCase().includes(query))
-      .slice(0, 10);
+      .slice(0, 10)
+      .forEach(m => {
+        const li = document.createElement('li')
+        li.textContent = m.nombre
+        li.onclick = () => {
+          input.value = m.nombre
+          list.innerHTML = ''
+          consultarClima(m.id)
+        }
+        list.appendChild(li)
+      })
+  })
 
-    coincidencias.forEach(m => {
-      const li = document.createElement('li');
-      li.textContent = m.nombre;
-      li.onclick = () => {
-        inputSearch.value = m.nombre;
-        suggestionsUl.innerHTML = '';
-        consultarClimaAEMET(m.id);
-      };
-      suggestionsUl.appendChild(li);
-    });
-  });
-
-  // Cerrar lista si pulsamos fuera
-  document.addEventListener('click', (e) => {
-    if (!inputSearch.contains(e.target as Node)) {
-      suggestionsUl.innerHTML = '';
+  document.addEventListener('click', e => {
+    if (!input.contains(e.target as Node)) {
+      list.innerHTML = ''
     }
-  });
+  })
 }
 
-// --- 3. PETICIÓN DE CLIMA A AEMET ---
-async function consultarClimaAEMET(id: string = '29067') {
-  // Misma lógica: local directo, Vercel vía Proxy seguro
-  const urlClima = isLocal
-    ? `https://opendata.aemet.es/opendata/api/prediccion/especifica/municipio/diaria/${id}?api_key=${API_KEY}`
-    : `/api/clima?id=${id}`;
-
+// --- 3. PETICIÓN DE CLIMA ---
+async function consultarClima(id: string = '29067') {
   try {
-    const response = await fetch(urlClima);
-    const metaData = await response.json();
+    const response = await fetch(`/api/clima?id=${id}`)
+    const metaData = await response.json()
 
-    // AEMET devuelve una URL en 'datos' que contiene el JSON del clima
-    const finalRes = await fetch(metaData.datos);
-    const buffer = await finalRes.arrayBuffer();
-    const decodedText = new TextDecoder('iso-8859-15').decode(buffer);
+    const finalRes = await fetch(metaData.datos)
+    const buffer = await finalRes.arrayBuffer()
+    const decodedText = new TextDecoder('iso-8859-15').decode(buffer)
+    const data: AemetResponse[] = JSON.parse(decodedText)
 
-    const data: AemetResponse[] = JSON.parse(decodedText); 
-    renderWeather(data[0]);
+    renderWeather(data[0])
   } catch (error) {
-    console.error("❌ Error al obtener el clima:", error);
+    console.error('❌ Error obteniendo clima:', error)
   }
 }
 
-// --- 4. TRADUCCIÓN DE CÓDIGOS A ICONOS ---
+// --- 4. ICONOS ---
 function getIcon(valor: string, descripcion: string): string {
-  const icons: { [key: string]: string } = {
-    "11": "☀️", "11n": "🌙", "12": "🌤️", "13": "⛅", "14": "☁️", 
-    "15": "☁️", "16": "☁️", "16n": "🌙", "17": "🌤️",
-    "43": "🌦️", "44": "🌧️", "45": "🌧️", "46": "🌧️",
-    "23": "🌦️", "24": "🌧️", "25": "🌧️", "26": "🌧️",
-    "51": "🌩️", "52": "⛈️", "71": "🌨️", "81": "🌫️", "82": "🌫️"
-  };
+  const icons: Record<string, string> = {
+    '11': '☀️', '11n': '🌙', '12': '🌤️', '13': '⛅', '14': '☁️',
+    '15': '☁️', '16': '☁️', '16n': '🌙', '17': '🌤️',
+    '23': '🌦️', '24': '🌧️', '25': '🌧️', '26': '🌧️',
+    '43': '🌦️', '44': '🌧️', '45': '🌧️', '46': '🌧️',
+    '51': '🌩️', '52': '⛈️', '71': '🌨️', '81': '🌫️', '82': '🌫️'
+  }
 
-  const cleanValor = valor.trim();
-  if (icons[cleanValor]) return icons[cleanValor];
+  if (icons[valor]) return icons[valor]
 
-  const desc = descripcion.toLowerCase();
-  if (desc.includes("despejado")) return "☀️";
-  if (desc.includes("cubierto") || desc.includes("nubes")) return "☁️";
-  if (desc.includes("lluvia")) return "🌧️";
-  if (desc.includes("tormenta")) return "⛈️";
-  
-  return "🌈"; 
+  const d = descripcion.toLowerCase()
+  if (d.includes('despejado')) return '☀️'
+  if (d.includes('cubierto') || d.includes('nubes')) return '☁️'
+  if (d.includes('lluvia')) return '🌧️'
+  if (d.includes('tormenta')) return '⛈️'
+
+  return '🌈'
 }
 
-// --- 5. RENDERIZADO DEL CLIMA ---
+// --- 5. RENDER ---
 function renderWeather(data: AemetResponse) {
-  const hoy = data.prediccion.dia[0];
-  const estadoActual = hoy.estadoCielo.find(e => e.value !== "") || hoy.estadoCielo[0];
-  const icono = getIcon(estadoActual.value, estadoActual.descripcion);
+  const hoy = data.prediccion.dia[0]
+  const estado = hoy.estadoCielo.find(e => e.value) || hoy.estadoCielo[0]
+  const icono = getIcon(estado.value, estado.descripcion)
 
-  const resultDiv = document.querySelector<HTMLDivElement>('#weather-result')!;
-  
-  resultDiv.innerHTML = `
+  document.querySelector<HTMLDivElement>('#weather-result')!.innerHTML = `
     <div class="weather-card">
       <div class="icon-main">${icono}</div>
       <h1>${data.nombre}</h1>
       <p class="temp">${hoy.temperatura.maxima}°C</p>
       <div class="range">
-         <span>Min: ${hoy.temperatura.minima}°C</span> | 
-         <span>Max: ${hoy.temperatura.maxima}°C</span>
+        <span>Min: ${hoy.temperatura.minima}°C</span> |
+        <span>Max: ${hoy.temperatura.maxima}°C</span>
       </div>
-      <p class="desc">${estadoActual.descripcion || 'Cielo'}</p>
+      <p class="desc">${estado.descripcion}</p>
     </div>
-  `;
+  `
 }
 
-// --- ARRANQUE ---
-registrarMunicipiosLocalmente(); 
-consultarClimaAEMET(); // Málaga por defecto
+// --- INIT ---
+registrarMunicipios()
+consultarClima()
