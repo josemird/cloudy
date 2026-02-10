@@ -2,16 +2,16 @@ import './style.css'
 import './scss/main.scss'
 import type { AemetResponse } from './types/aemet';
 
+// --- CONFIGURACIÓN ---
 const API_KEY = import.meta.env.VITE_AEMET_API_KEY; 
 let municipiosLocal: { nombre: string, id: string }[] = [];
 
-// --- LÓGICA DE DETECCIÓN DE ENTORNO ---
-// Detectamos si estamos trabajando en local para usar la API directa o el Proxy
+// Detectamos el entorno para decidir la ruta de la API
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
 // --- 1. REGISTRO LOCAL DE MUNICIPIOS (AEMET) ---
 async function registrarMunicipiosLocalmente() {
-  // Si es local, usamos la URL de siempre. Si es Vercel, usamos nuestro proxy seguro /api/clima
+  // En local va directo a AEMET, en Vercel pasa por nuestro "túnel" seguro
   const urlMaestro = isLocal 
     ? `https://opendata.aemet.es/opendata/api/maestro/municipios?api_key=${API_KEY}`
     : `/api/clima?type=maestro`;
@@ -20,6 +20,7 @@ async function registrarMunicipiosLocalmente() {
     const response = await fetch(urlMaestro);
     const metaData = await response.json();
     
+    // AEMET nos da una URL temporal en el campo 'datos'
     const finalRes = await fetch(metaData.datos);
     const buffer = await finalRes.arrayBuffer();
     const decoder = new TextDecoder('iso-8859-15');
@@ -32,14 +33,14 @@ async function registrarMunicipiosLocalmente() {
       id: m.id.replace('id', '') 
     }));
 
-    console.log(`✅ Registro completado: ${municipiosLocal.length} municipios listos para buscar.`);
+    console.log(`✅ Registro completado: ${municipiosLocal.length} municipios listos.`);
     setupBuscador();
   } catch (error) {
-    console.error("❌ Error al registrar municipios desde AEMET:", error);
+    console.error("❌ Error al registrar municipios:", error);
   }
 }
 
-// --- 2. BUSCADOR ---
+// --- 2. LÓGICA DEL BUSCADOR ---
 function setupBuscador() {
   const inputSearch = document.querySelector<HTMLInputElement>('#city-search')!;
   const suggestionsUl = document.querySelector<HTMLUListElement>('#suggestions')!;
@@ -75,7 +76,6 @@ function setupBuscador() {
 
 // --- 3. PETICIÓN DE CLIMA A AEMET ---
 async function consultarClimaAEMET(id: string = '29067') {
-  // Aplicamos la misma lógica: en local directo a AEMET, en Vercel al Proxy
   const urlClima = isLocal
     ? `https://opendata.aemet.es/opendata/api/prediccion/especifica/municipio/diaria/${id}?api_key=${API_KEY}`
     : `/api/clima?id=${id}`;
@@ -120,7 +120,6 @@ function getIcon(valor: string, descripcion: string): string {
 // --- 5. RENDERIZADO DEL CLIMA ---
 function renderWeather(data: AemetResponse) {
   const hoy = data.prediccion.dia[0];
-  
   const estadoActual = hoy.estadoCielo.find(e => e.value !== "") || hoy.estadoCielo[0];
   const icono = getIcon(estadoActual.value, estadoActual.descripcion);
 
@@ -140,5 +139,6 @@ function renderWeather(data: AemetResponse) {
   `;
 }
 
+// --- ARRANQUE ---
 registrarMunicipiosLocalmente(); 
 consultarClimaAEMET();
