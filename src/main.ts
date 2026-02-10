@@ -5,9 +5,16 @@ import type { AemetResponse } from './types/aemet';
 const API_KEY = import.meta.env.VITE_AEMET_API_KEY; 
 let municipiosLocal: { nombre: string, id: string }[] = [];
 
+// --- LÓGICA DE DETECCIÓN DE ENTORNO ---
+// Detectamos si estamos trabajando en local para usar la API directa o el Proxy
+const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
 // --- 1. REGISTRO LOCAL DE MUNICIPIOS (AEMET) ---
 async function registrarMunicipiosLocalmente() {
-  const urlMaestro = `https://opendata.aemet.es/opendata/api/maestro/municipios?api_key=${API_KEY}`;
+  // Si es local, usamos la URL de siempre. Si es Vercel, usamos nuestro proxy seguro /api/clima
+  const urlMaestro = isLocal 
+    ? `https://opendata.aemet.es/opendata/api/maestro/municipios?api_key=${API_KEY}`
+    : `/api/clima?type=maestro`;
 
   try {
     const response = await fetch(urlMaestro);
@@ -68,7 +75,10 @@ function setupBuscador() {
 
 // --- 3. PETICIÓN DE CLIMA A AEMET ---
 async function consultarClimaAEMET(id: string = '29067') {
-  const urlClima = `https://opendata.aemet.es/opendata/api/prediccion/especifica/municipio/diaria/${id}?api_key=${API_KEY}`;
+  // Aplicamos la misma lógica: en local directo a AEMET, en Vercel al Proxy
+  const urlClima = isLocal
+    ? `https://opendata.aemet.es/opendata/api/prediccion/especifica/municipio/diaria/${id}?api_key=${API_KEY}`
+    : `/api/clima?id=${id}`;
 
   try {
     const response = await fetch(urlClima);
@@ -130,6 +140,5 @@ function renderWeather(data: AemetResponse) {
   `;
 }
 
-
 registrarMunicipiosLocalmente(); 
-consultarClimaAEMET();           
+consultarClimaAEMET();
